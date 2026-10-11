@@ -51,6 +51,7 @@ import { registerSetApprovalFlow } from './set-approval-flow.js'
 import { registerSetFormPersonalisation } from './set-form-personalisation.js'
 import { registerSetFormServerValidation } from './set-form-server-validation.js'
 import { registerCreateForm } from './create-form.js'
+import { registerDeleteForm } from './delete-form.js'
 
 export function registerWorkflows(server: McpServer): void {
   registerListForms(server)
@@ -65,4 +66,5 @@ export function registerWorkflows(server: McpServer): void {
   registerSetFormPersonalisation(server)
   registerSetFormServerValidation(server)
   registerCreateForm(server)
+  registerDeleteForm(server)
 }
