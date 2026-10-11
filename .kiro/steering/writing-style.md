@@ -1,5 +1,9 @@
 ---
 inclusion: always
+status: accepted
+last_verified: 2026-10-11
+verified_against:
+  - "user-stated preference; no SDK/system claims"
 ---
 
 # Writing Style

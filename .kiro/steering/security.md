@@ -1,5 +1,10 @@
 ---
 inclusion: always
+status: accepted
+last_verified: 2026-10-11
+verified_against:
+  - "OWASP Top 10 2025 references; design preferences (no SDK-shape claims)"
+  - "in-practice notes match src/lib/config.ts + src/lib/logger.ts"
 ---
 
 # Security Requirements

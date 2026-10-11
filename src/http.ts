@@ -24,7 +24,8 @@ import { JwksTokenVerifier } from './lib/auth/jwks-verifier.js'
 import { FileCredentialResolver } from './lib/auth/file-resolver.js'
 import { UnauthorizedError, type TokenVerifier, type CredentialResolver } from './lib/auth/types.js'
 import { getClientFor } from './lib/oneblink-client.js'
-import { runWithClient } from './lib/request-context.js'
+import { getCliCredentialsFor } from './lib/cli-credentials.js'
+import { runWithClient, runWithCliCredentials } from './lib/request-context.js'
 import { logger } from './lib/logger.js'
 
 const MCP_PATH = '/mcp'
@@ -102,8 +103,14 @@ async function handle(
 
   // --- Resolve this tenant's OneBlink key and broker the call ---------------
   let client
+  let cliCredentials
   try {
     client = await getClientFor(auth, resolver)
+    // CLI deploy keys resolve through the SAME resolver, keyed by the SAME
+    // system-derived tenant, but via a SEPARATE accessor so SDK Developer Keys
+    // and CLI deploy keys stay conceptually distinct (OWASP A01). The deploy
+    // tools read these from the request context via getCliCredentials().
+    cliCredentials = await getCliCredentialsFor(auth, resolver)
   } catch (err) {
     // e.g. no key configured for the tenant. Non-sensitive message, fail closed.
     const message = err instanceof Error ? err.message : 'credential resolution failed'
@@ -125,7 +132,9 @@ async function handle(
   await server.connect(transport)
   logger.info('mcp request', { tenant: auth.tenant, subject: auth.subject })
   await runWithClient(client, async () => {
-    await transport.handleRequest(req, res, body)
+    await runWithCliCredentials(cliCredentials, async () => {
+      await transport.handleRequest(req, res, body)
+    })
   })
 }
 

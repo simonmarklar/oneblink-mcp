@@ -107,7 +107,7 @@ export function registerListForms(server: McpServer): void {
             }
             const result = await forms.searchForms({ ...filter, limit: MAX_PAGE, offset })
             for (const form of result.forms) {
-              lines.push(JSON.stringify(project(form as Record<string, unknown>, fields)))
+              lines.push(JSON.stringify(project(form as unknown as Record<string, unknown>, fields)))
             }
             if (result.forms.length < MAX_PAGE) break
             offset += MAX_PAGE
@@ -126,10 +126,12 @@ export function registerListForms(server: McpServer): void {
 
         // page mode
         const result = await forms.searchForms({ ...filter, limit: input.limit, offset: input.offset })
-        const items = result.forms.map((form: Record<string, unknown>) =>
-          project(form, fields),
+        const items = result.forms.map((form) =>
+          project(form as unknown as Record<string, unknown>, fields),
         )
-        const nextOffset = result.forms.length === input.limit ? input.offset + input.limit : null
+        // Use the SDK's authoritative nextOffset rather than inferring from a
+        // full page (a full page does not necessarily mean more data exists).
+        const nextOffset = result.meta?.nextOffset ?? null
         logger.info('list_forms', {
           mode: 'page',
           ...filter,

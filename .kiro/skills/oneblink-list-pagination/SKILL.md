@@ -6,6 +6,10 @@ description: >-
   any tool that calls an SDK search/list method (searchForms, etc.). Covers page
   size caps, offset pagination, the meta contract, and JSONL stream mode. Enforces
   tool-design steering rule 4.
+status: accepted
+last_verified: 2026-10-11
+verified_against:
+  - "@oneblink/sdk FormsSearchResult / FormsAppEnvironmentsSearchResult (meta.nextOffset) — verified live 2026-10-11"
 ---
 
 # OneBlink List Pagination
@@ -59,7 +63,11 @@ return {
     limit,
     offset,
     returnedCount: result.items.length,
-    nextOffset: result.items.length === limit ? offset + limit : null,
+    // Use the SDK's OWN cursor (steering rule 6). Do NOT re-derive it from
+    // page length — a full page does not prove more data exists (it's wrong
+    // when the total is an exact multiple of limit). Only derive a fallback
+    // if the SDK provides no nextOffset.
+    nextOffset: result.meta?.nextOffset ?? null,
   },
 }
 ```
@@ -67,6 +75,8 @@ return {
 - `nextOffset: null` signals the last page. Caller re-calls with `nextOffset`
   until null.
 - Never auto-loop all pages in page mode.
+- If a particular SDK search method does NOT return `meta.nextOffset`, confirm
+  that against its `.d.ts` first, then derive a fallback and note it in the tool.
 
 ## Mode: stream (JSONL bulk export)
 
@@ -101,6 +111,6 @@ Never log item contents or raw SDK responses.
 - [ ] page size capped at 200
 - [ ] output is a projection, not raw (rule 3)
 - [ ] optional `fields` honored; top-level only; array→count, object→type/`[Object]`; unknown/nested rejected
-- [ ] `meta.nextOffset` correct in page mode
+- [ ] `meta.nextOffset` from the SDK's own cursor (rule 6), not re-derived from page length
 - [ ] stream mode emits JSONL, one projected object per line
 - [ ] logs are scalars only

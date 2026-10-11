@@ -1,5 +1,10 @@
 ---
 inclusion: always
+status: accepted
+last_verified: 2026-10-11
+verified_against:
+  - "rule 6 confirmed live: @oneblink/sdk search results carry meta.nextOffset (2026-10-11)"
+  - "rules 1-5: design decisions Q1-Q5 + auth-session.md"
 ---
 
 # Tool Design
@@ -89,3 +94,24 @@ never conflate them. Spec: `docs/requirements/auth-session.md`.
 - A tool never sees raw credentials. It asks `getClient()` for a service; the
   client factory owns resolving the OneBlink key from the current auth context.
   Changing the credential source must not touch workflow code.
+
+## 6. Contracts derive from the SDK, not from assumption
+
+A tool's behaviour must match what the SDK **actually** returns — verified
+against its types or a live call — not what a spec or skill *assumed* it returns.
+
+- **Prefer the SDK's own value over a re-derived one.** When the SDK already
+  provides a field (a pagination cursor like `meta.nextOffset`, a total, a
+  server-computed flag), use it. Deriving a local substitute invents a second
+  source of truth that drifts the moment the assumption is wrong — e.g.
+  `nextOffset = length === limit ? ... : null` is wrong when the total is an
+  exact multiple of the page size (it points at an empty page); the SDK's
+  `nextOffset` is correct.
+- **Verify shape before encoding it.** Before a spec/skill hard-codes a return
+  field or its semantics, confirm it against the SDK's `.d.ts` or a probe call.
+  Assuming a *shape* to design against is fine; asserting a *specific field's
+  semantics* without checking is how the mismatch above happened.
+- **Meta files describe intent, not brittle formulas.** A skill/spec should say
+  "use the SDK's `nextOffset`; derive one only if the SDK gives none" — not paste
+  a concrete formula the SDK already owns. If a doc and the SDK disagree, the SDK
+  wins and the doc is the bug.

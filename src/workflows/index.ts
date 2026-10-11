@@ -40,7 +40,27 @@
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { registerListForms } from './list-forms.js'
+import { registerListFormsAppEnvironments } from './list-forms-app-environments.js'
+import { registerListWorkspaces } from './list-workspaces.js'
+import { registerUpsertEmailSubmissionEvent } from './upsert-email-submission-event.js'
+import { registerUpsertApiSubmissionEvent } from './upsert-api-submission-event.js'
+import { registerUpsertApiSubmissionEventWithApi } from './upsert-api-submission-event-with-api.js'
+import { registerDeployHostedApi } from './deploy-hosted-api.js'
+import { registerDeployCdn } from './deploy-cdn.js'
+import { registerSetApprovalFlow } from './set-approval-flow.js'
+import { registerSetFormPersonalisation } from './set-form-personalisation.js'
+import { registerCreateForm } from './create-form.js'
 
 export function registerWorkflows(server: McpServer): void {
   registerListForms(server)
+  registerListFormsAppEnvironments(server)
+  registerListWorkspaces(server)
+  registerUpsertEmailSubmissionEvent(server)
+  registerUpsertApiSubmissionEvent(server)
+  registerUpsertApiSubmissionEventWithApi(server)
+  registerDeployHostedApi(server)
+  registerDeployCdn(server)
+  registerSetApprovalFlow(server)
+  registerSetFormPersonalisation(server)
+  registerCreateForm(server)
 }

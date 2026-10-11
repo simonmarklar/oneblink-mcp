@@ -1,3 +1,11 @@
+---
+status: accepted
+last_verified: 2026-10-11
+verified_against:
+  - "@oneblink/sdk Forms.searchForms -> FormsSearchResult.forms + meta.nextOffset"
+  - "live run 2026-10-11: list_forms over env 380 returned 25 forms (page + JSONL)"
+---
+
 # Requirements: `list_forms`
 
 **Status:** Approved

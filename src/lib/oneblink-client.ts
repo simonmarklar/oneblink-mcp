@@ -28,7 +28,7 @@
  * swapping the resolver (local file → Secrets Manager) never touches it.
  */
 import { loadConfig, loadTenant, type Config } from './config.js'
-import { Forms } from '@oneblink/sdk'
+import { Forms, FormsAppEnvironments, EmailTemplates } from '@oneblink/sdk'
 import type { AuthContext, CredentialResolver } from './auth/types.js'
 import { currentClient } from './request-context.js'
 
@@ -43,11 +43,17 @@ export interface OneBlinkClient {
   readonly sdkOptions: SdkConstructorOptions
   /** Forms service, scoped to the resolved Developer Key. */
   forms(): Forms
+  /** FormsAppEnvironments service, scoped to the resolved Developer Key. */
+  formsAppEnvironments(): FormsAppEnvironments
+  /** EmailTemplates service, scoped to the resolved Developer Key. */
+  emailTemplates(): EmailTemplates
 }
 
 /** Build a client around an explicit set of SDK options (key already resolved). */
 function buildClient(sdkOptions: SdkConstructorOptions, config: Config): OneBlinkClient {
   let formsService: Forms | undefined
+  let envService: FormsAppEnvironments | undefined
+  let emailTemplateService: EmailTemplates | undefined
   return {
     config,
     sdkOptions,
@@ -56,6 +62,14 @@ function buildClient(sdkOptions: SdkConstructorOptions, config: Config): OneBlin
       // when a non-default tenant is configured.
       formsService ??= new Forms(sdkOptions)
       return formsService
+    },
+    formsAppEnvironments() {
+      envService ??= new FormsAppEnvironments(sdkOptions)
+      return envService
+    },
+    emailTemplates() {
+      emailTemplateService ??= new EmailTemplates(sdkOptions)
+      return emailTemplateService
     },
   }
 }

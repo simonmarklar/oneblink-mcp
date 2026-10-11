@@ -1,3 +1,11 @@
+---
+status: proposed
+last_verified: 2026-10-11
+verified_against:
+  - "PoC #4 (Keycloak OAuth) VERIFIED live 2026-10-11: token->broker->list_forms 200"
+  - "target HTTP/Cognito design is PROPOSED, not built (Q1-Q5 open)"
+---
+
 # Requirements: Session Authentication & Credential Handling
 
 **Status:** Draft for review
