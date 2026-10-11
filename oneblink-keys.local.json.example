@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to oneblink-keys.local.json (gitignored) and fill real keys. Keyed by the token's tenant claim.",
+  "acme": {
+    "accessKey": "REPLACE_WITH_ONEBLINK_ACCESS_KEY",
+    "secretKey": "REPLACE_WITH_ONEBLINK_SECRET_KEY"
+  }
+}

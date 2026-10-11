@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Local OneBlink Developer Keys for the HTTP PoC credential resolver.
+# NEVER commit real keys. The .example is a template only.
+oneblink-keys.local.json
+!oneblink-keys.local.json.example
+
+# Keycloak realm exports may contain real users/secrets. Keep only the
+# throwaway PoC seed (testuser/testpass); ignore any other export.
+keycloak/import/*.json
+!keycloak/import/oneblink-poc-realm.json

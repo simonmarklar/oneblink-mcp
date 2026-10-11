@@ -1,0 +1,45 @@
+{
+  "name": "@oneblink/mcp-server",
+  "version": "0.1.0",
+  "description": "Workflow-focused Model Context Protocol server for the OneBlink Low-code Suite, built on the official @oneblink/sdk.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "oneblink-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js",
+    "inspect": "mcp-inspector node dist/index.js",
+    "inspect:http": "mcp-inspector",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "lint": "eslint . --ext .ts",
+    "poc:up": "pwsh -File scripts/poc.ps1 up",
+    "poc:smoke": "pwsh -File scripts/poc.ps1 smoke",
+    "poc:token": "pwsh -File scripts/poc.ps1 token",
+    "poc:down": "pwsh -File scripts/poc.ps1 down"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@oneblink/sdk": "^13.2.5",
+    "jose": "^5.10.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^2.10.1",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0"
+  }
+}
