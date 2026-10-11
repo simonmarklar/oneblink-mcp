@@ -85,14 +85,16 @@ The *procedure* (page caps, cursor/`meta` shape, JSONL framing) lives in the
 Caller auth and OneBlink auth are **separate credentials for separate hops** —
 never conflate them. Spec: `docs/requirements/auth-session.md`.
 
-- Caller → server: an OAuth token (HTTP) or env/process identity (stdio interim).
-  Validated by the server; audience **must** be this server (no passthrough,
-  no confused deputy).
-- Server → OneBlink: the static HMAC Developer Key, held **server-side only**
-  (secrets manager in HTTP; env/keychain in stdio). Never a tool argument, never
-  returned to the client, never logged.
-- A tool never sees raw credentials. It asks `getClient()` for a service; the
-  client factory owns resolving the OneBlink key from the current auth context.
+- Caller → server: the caller supplies its OneBlink Developer Key per session
+  via request headers (`X-OneBlink-Access-Key` / `X-OneBlink-Secret-Key`, and
+  optionally the `X-OneBlink-CLI-*` deploy pair). HTTP-only; fail closed (401)
+  when a required header is absent.
+- Server → OneBlink: the static HMAC Developer Key is the caller's own,
+  supplied on the request. It is bound only for that request's context, never a
+  tool argument, never returned to the client, never logged. The server holds
+  no keys of its own.
+- A tool never sees raw credentials as arguments. It asks `getClient()` for a
+  service; the client factory owns the key from the per-request context.
   Changing the credential source must not touch workflow code.
 
 ## 6. Contracts derive from the SDK, not from assumption

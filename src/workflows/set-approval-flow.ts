@@ -25,7 +25,7 @@ const nodeShape = z.object({
   label: z.string().min(1),
   group: z.string().min(1),
   approvalFormId: z.number().int().positive().optional(),
-  approvalFormPrefillMappings: z.array(z.unknown()).optional(),
+  approvalFormPrefillMappings: z.array(z.object({}).passthrough()).optional(),
   hideApprovalDenyButton: z.boolean().optional(),
   editableFormElementIds: z.array(z.string()).optional(),
 })
@@ -35,7 +35,7 @@ const stepShape = nodeShape.extend({
   nodes: z.array(nodeShape).optional().describe('Required for CONCURRENT steps; >= 1 node.'),
   isConditional: z.boolean().optional(),
   requiresAllConditionalPredicates: z.boolean().optional(),
-  conditionalPredicates: z.array(z.unknown()).optional(),
+  conditionalPredicates: z.array(z.object({}).passthrough()).optional(),
 })
 
 // For a CONCURRENT step the step-level label/group are placeholders; the real
@@ -51,7 +51,8 @@ const baseShape = {
     .nonempty('at least one approval step is required')
     .describe('The full ordered approval flow. REPLACES the existing flow (D1).'),
   approvalConfiguration: z
-    .record(z.unknown())
+    .object({})
+    .passthrough()
     .optional()
     .describe('Whole-flow config written verbatim when supplied; left untouched otherwise (D5).'),
   overrideLock: z

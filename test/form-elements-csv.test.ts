@@ -65,6 +65,20 @@ test('options cell parses label:value and bare label tokens', () => {
   assert.equal(res.elements[0]?.optionsType, 'CUSTOM')
 })
 
+test('options cell parses PIPE-separated label:value tokens (no CSV quoting needed)', () => {
+  // The documented skill syntax: pipe-separated, so the cell is a single
+  // unquoted CSV field. This is the exact case the AU-state demo uses.
+  const res = build(
+    'label,type,options\nState,select,New South Wales:NSW|Victoria:VIC|Queensland:QLD\n',
+  )
+  assert.equal(res.errors.length, 0)
+  const opts = res.elements[0]?.options as Array<{ label: string; value: string; id: string }>
+  assert.equal(opts.length, 3)
+  assert.deepEqual({ label: opts[0]!.label, value: opts[0]!.value }, { label: 'New South Wales', value: 'NSW' })
+  assert.deepEqual({ label: opts[2]!.label, value: opts[2]!.value }, { label: 'Queensland', value: 'QLD' })
+  assert.equal(res.elements[0]?.optionsType, 'CUSTOM')
+})
+
 test('options on a non-options type fails fast', () => {
   const compiled = compileCsv('label,type,options\nName,text,"a,b"\n')
   assert.equal(compiled.errors.length, 1)

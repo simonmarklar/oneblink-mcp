@@ -61,8 +61,8 @@ and Monitoring Failures).
 **In practice for this project:**
 - Log through `src/lib/logger.ts`, which accepts only scalar fields to
   discourage dumping arbitrary objects.
-- The stdio transport uses stdout for the MCP protocol — all logs go to
-  **stderr**.
+- The MCP server writes diagnostics to **stderr**; stdout is reserved for the
+  transport. Never log a secret.
 - When logging an SDK error, log its message and/or status code, not the raw
   error or the request that caused it.
 

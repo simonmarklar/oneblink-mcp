@@ -43,8 +43,8 @@ const cdnConfigShape = z
     disableSecurityResponseHeaders: z.boolean().optional(),
     waf: z
       .object({
-        prod: z.unknown().optional(),
-        test: z.unknown().optional(),
+        prod: z.object({}).passthrough().optional().describe('Free-form WAF config object for prod.'),
+        test: z.object({}).passthrough().optional().describe('Free-form WAF config object for test.'),
       })
       .optional(),
   })
@@ -145,9 +145,9 @@ export async function deployCdnHandler(
   }
 
   try {
-    // Resolve THIS caller's deploy keys from the per-caller path (request
-    // context on HTTP, env fallback on stdio). Fails closed with a non-secret,
-    // tenant-named message before any subprocess spawns.
+    // Resolve THIS caller's deploy keys from the per-caller request context.
+    // Fails closed with a non-secret message (e.g. called outside an HTTP
+    // request) before any subprocess spawns.
     let credentials
     try {
       credentials = getCliCredentials()

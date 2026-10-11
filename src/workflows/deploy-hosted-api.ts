@@ -110,9 +110,9 @@ export async function performDeploy(
 
   const steps = buildDeployArgvs(input)
 
-  // Resolve THIS caller's deploy keys from the per-caller path (request context
-  // on HTTP, env fallback on stdio). Fails closed with a non-secret, tenant-
-  // named message when unresolvable — before any subprocess spawns.
+  // Resolve THIS caller's deploy keys from the per-caller request context.
+  // Fails closed with a non-secret message when unresolvable (e.g. called
+  // outside an HTTP request) — before any subprocess spawns.
   let credentials
   try {
     credentials = getCliCredentials()

@@ -1,51 +1,54 @@
 #!/usr/bin/env node
 /**
- * OneBlink MCP server — HTTP (OAuth Resource Server) entry point.
+ * OneBlink MCP server — HTTP transport.
  *
- * This is the remote transport specced in docs/requirements/auth-session.md.
- * It is the OAuth 2.1 **Resource Server**: it validates the caller's bearer
- * token (audience === this server, RFC 8707), resolves that tenant's OneBlink
- * Developer Key via a CredentialResolver, and runs the MCP tool call with a
- * per-request brokered client. The OneBlink key never leaves this process and
- * is never logged (A09) or returned to the client.
+ * CREDENTIAL MODEL (auth-session.md, revised 2026-10-11): the CALLER supplies
+ * its OWN OneBlink Developer Key on each HTTP session, via request HEADERS:
  *
- * SWAP SEAM (steering rule 5): to move to Cognito + Secrets Manager, change
- * only the TokenVerifier config and the CredentialResolver impl below. The
- * transport, routing, workflows, and server factory are untouched.
+ *   X-OneBlink-Access-Key: <access key>
+ *   X-OneBlink-Secret-Key: <secret key>
  *
- * PoC: binds loopback only; token verifier → Keycloak JWKS; resolver → local
- * gitignored JSON.
+ * and, OPTIONALLY, a separate CLI deploy key pair for the deploy workflows:
+ *
+ *   X-OneBlink-CLI-Access-Key: <deploy access key>
+ *   X-OneBlink-CLI-Secret-Key: <deploy secret key>
+ *
+ * The server holds NO keys: it does not read `.env` or any key file, and there
+ * is no OAuth broker. Each request builds a client from that request's own
+ * header pair and runs the MCP tool call inside the per-request context, so
+ * getClient()/getCliCredentials() and every workflow read the key from that
+ * context. HTTP-only — there is no stdio transport and no env fallback.
+ *
+ * SECURITY:
+ *   - Credentials ride HEADERS, never tool arguments — they never enter the
+ *     model's context, the transcript, or tool logs (the one hard MCP rule
+ *     kept). They are never logged (A09) and never returned to the client.
+ *   - Fail closed: a request missing a required credential header → 401, with a
+ *     message naming the HEADER, never the value.
+ *   - PoC binds loopback only. A hosted deployment MUST terminate TLS in front
+ *     so the header pair is never sent in clear text.
  */
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { createServer } from './server.js'
 import { loadHttpConfig, type HttpConfig } from './lib/config.js'
-import { JwksTokenVerifier } from './lib/auth/jwks-verifier.js'
-import { FileCredentialResolver } from './lib/auth/file-resolver.js'
-import { UnauthorizedError, type TokenVerifier, type CredentialResolver } from './lib/auth/types.js'
-import { getClientFor } from './lib/oneblink-client.js'
-import { getCliCredentialsFor } from './lib/cli-credentials.js'
+import { buildClientFromCredentials } from './lib/oneblink-client.js'
+import {
+  sdkCredentialsFromHeaders,
+  cliCredentialsFromHeaders,
+  MissingCredentialsError,
+  type RequestHeaders,
+} from './lib/auth/header-credentials.js'
 import { runWithClient, runWithCliCredentials } from './lib/request-context.js'
 import { logger } from './lib/logger.js'
 
 const MCP_PATH = '/mcp'
-const METADATA_PATH = '/.well-known/oauth-protected-resource'
 
 async function main(): Promise<void> {
   const cfg = loadHttpConfig()
 
-  // --- The two swap seams. Change ONLY these for Cognito + Secrets Manager. --
-  const verifier: TokenVerifier = new JwksTokenVerifier({
-    issuer: cfg.issuer,
-    jwksUri: cfg.jwksUri,
-    audience: cfg.audience,
-    tenantClaim: cfg.tenantClaim,
-  })
-  const resolver: CredentialResolver = new FileCredentialResolver(cfg.keyFile)
-  // ---------------------------------------------------------------------------
-
   const http = createHttpServer((req, res) => {
-    handle(req, res, cfg, verifier, resolver).catch((err: unknown) => {
+    handle(req, res, cfg).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : 'unknown error'
       logger.error('unhandled request error', { message })
       if (!res.headersSent) sendJson(res, 500, { error: 'internal_error' })
@@ -58,71 +61,46 @@ async function main(): Promise<void> {
       transport: 'streamable-http',
       bind: cfg.bind,
       port: cfg.port,
-      issuer: cfg.issuer,
-      audience: cfg.audience,
+      credentials: 'per-session request headers',
     })
   })
 }
 
-async function handle(
-  req: IncomingMessage,
-  res: ServerResponse,
-  cfg: HttpConfig,
-  verifier: TokenVerifier,
-  resolver: CredentialResolver,
-): Promise<void> {
+async function handle(req: IncomingMessage, res: ServerResponse, cfg: HttpConfig): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${cfg.bind}:${cfg.port}`)
-
-  // RFC 9728 Protected Resource Metadata — unauthenticated discovery.
-  if (req.method === 'GET' && url.pathname === METADATA_PATH) {
-    sendJson(res, 200, {
-      resource: cfg.audience,
-      authorization_servers: [cfg.issuer],
-      bearer_methods_supported: ['header'],
-    })
-    return
-  }
 
   if (url.pathname !== MCP_PATH) {
     sendJson(res, 404, { error: 'not_found' })
     return
   }
 
-  // --- AuthN: validate the caller's bearer token (audience === this server) --
-  const authHeader = req.headers.authorization
-  if (!authHeader) {
-    return unauthorized(res, cfg, 'missing bearer token')
-  }
-  let auth
-  try {
-    auth = await verifier.verify(authHeader)
-  } catch (err) {
-    const message = err instanceof UnauthorizedError ? err.message : 'invalid token'
-    return unauthorized(res, cfg, message)
-  }
-
-  // --- Resolve this tenant's OneBlink key and broker the call ---------------
+  // --- Per-session credentials from the request headers ---------------------
+  // The caller's own OneBlink key pair rides the connection as headers. We
+  // build a client from it for this request only; the key never leaves this
+  // process and is never logged.
   let client
   let cliCredentials
   try {
-    client = await getClientFor(auth, resolver)
-    // CLI deploy keys resolve through the SAME resolver, keyed by the SAME
-    // system-derived tenant, but via a SEPARATE accessor so SDK Developer Keys
-    // and CLI deploy keys stay conceptually distinct (OWASP A01). The deploy
-    // tools read these from the request context via getCliCredentials().
-    cliCredentials = await getCliCredentialsFor(auth, resolver)
+    const headers = req.headers as RequestHeaders
+    const sdk = sdkCredentialsFromHeaders(headers)
+    const cli = cliCredentialsFromHeaders(headers, sdk)
+    client = buildClientFromCredentials(sdk)
+    cliCredentials = cli
   } catch (err) {
-    // e.g. no key configured for the tenant. Non-sensitive message, fail closed.
-    const message = err instanceof Error ? err.message : 'credential resolution failed'
-    logger.warn('credential resolution failed', { tenant: auth.tenant, subject: auth.subject })
-    sendJson(res, 403, { error: 'forbidden', message })
-    return
+    if (err instanceof MissingCredentialsError) {
+      // Fail closed. Non-secret message (header names only).
+      logger.info('unauthorized', { reason: 'missing credential header(s)' })
+      return unauthorized(res, err.message)
+    }
+    const message = err instanceof Error ? err.message : 'credential error'
+    logger.warn('credential header error', { message })
+    return unauthorized(res, 'invalid credential header(s)')
   }
 
   const body = await readJsonBody(req)
 
   // Fresh stateless server + transport per request; run the handler with the
-  // per-tenant client bound in context so getClient() returns it.
+  // per-session client bound in context so getClient() returns it.
   const server = createServer()
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
   res.on('close', () => {
@@ -130,7 +108,7 @@ async function handle(
     void server.close()
   })
   await server.connect(transport)
-  logger.info('mcp request', { tenant: auth.tenant, subject: auth.subject })
+  logger.info('mcp request', { path: url.pathname })
   await runWithClient(client, async () => {
     await runWithCliCredentials(cliCredentials, async () => {
       await transport.handleRequest(req, res, body)
@@ -138,16 +116,23 @@ async function handle(
   })
 }
 
-/** 401 with the RFC 9728 metadata pointer in WWW-Authenticate. */
-function unauthorized(res: ServerResponse, cfg: HttpConfig, detail: string): void {
-  const metadataUrl = `${cfg.resolvedPublicUrl}${METADATA_PATH}`
-  res.setHeader(
-    'WWW-Authenticate',
-    `Bearer realm="oneblink-mcp", error="invalid_token", resource_metadata="${metadataUrl}"`,
-  )
-  // Do not log the token or the detail at info; detail is non-sensitive here.
-  logger.info('unauthorized', { reason: detail })
-  sendJson(res, 401, { error: 'unauthorized', message: detail })
+/**
+ * 401 for a request without usable credential headers.
+ *
+ * Deliberately NO `WWW-Authenticate` header: per the MCP authorization spec an
+ * MCP client treats a 401 carrying `WWW-Authenticate` as an OAuth challenge and
+ * launches RFC 9728 metadata discovery + RFC 7591 Dynamic Client Registration.
+ * This is a HEADER-CREDENTIAL server, not an OAuth resource server — advertising
+ * OAuth sends the client (e.g. the MCP Inspector) down the DCR path, which 404s
+ * because there are no OAuth endpoints. So we return a plain JSON 401 that tells
+ * the caller which credential headers to send instead.
+ */
+function unauthorized(res: ServerResponse, detail: string): void {
+  sendJson(res, 401, {
+    error: 'unauthorized',
+    message: detail,
+    hint: 'Send the OneBlink credentials as request headers: X-OneBlink-Access-Key and X-OneBlink-Secret-Key (plus optional X-OneBlink-CLI-Access-Key / X-OneBlink-CLI-Secret-Key for deploy tools). This server does not use OAuth.',
+  })
 }
 
 function sendJson(res: ServerResponse, status: number, obj: unknown): void {

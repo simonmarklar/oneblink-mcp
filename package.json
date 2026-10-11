@@ -6,7 +6,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "oneblink-mcp": "./dist/index.js"
+    "oneblink-mcp": "./dist/http.js"
   },
   "files": [
     "dist"
@@ -19,22 +19,17 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "gen:types": "tsx scripts/gen-form-element-types.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/http.js",
     "start:http": "node dist/http.js",
-    "inspect": "mcp-inspector node dist/index.js",
-    "inspect:http": "mcp-inspector",
+    "inspect:http": "mcp-inspector --transport http --server-url http://127.0.0.1:3000/mcp",
+    "inspect:cli": "mcp-inspector --cli --transport http --server-url http://127.0.0.1:3000/mcp",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "lint": "eslint . --ext .ts",
-    "poc:up": "pwsh -File scripts/poc.ps1 up",
-    "poc:smoke": "pwsh -File scripts/poc.ps1 smoke",
-    "poc:token": "pwsh -File scripts/poc.ps1 token",
-    "poc:down": "pwsh -File scripts/poc.ps1 down"
+    "lint": "eslint . --ext .ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@oneblink/sdk": "^13.2.5",
-    "jose": "^5.10.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

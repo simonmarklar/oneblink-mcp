@@ -22,10 +22,10 @@
  *
  * CREDENTIALS ARE PER-CALLER (not per-server): `runCli` receives the resolved
  * deploy key pair in `opts.credentials` (resolved upstream from the request
- * context), or resolves it via `getCliCredentials()` — the per-request context
- * on HTTP, the env fallback on stdio. It NO LONGER reads process.env for the
- * key pair, so one server serves many callers with no cross-caller leak
- * (OWASP A01). Only `cliBin` (a per-host install detail) stays config/env.
+ * context), or resolves it via `getCliCredentials()` — the per-request HTTP
+ * context. It NO LONGER reads process.env for the key pair, so one server
+ * serves many callers with no cross-caller leak (OWASP A01). Only `cliBin` (a
+ * per-host install detail) stays env.
  */
 import { execFile } from 'node:child_process'
 import process from 'node:process'
@@ -52,7 +52,8 @@ export interface RunCliOptions {
    * REQUIRED and PER-CALLER: the runner no longer reads process.env for the key
    * pair, so one MCP server can serve many callers each with their own keys
    * without any cross-caller leak (OWASP A01). Omit it to fall back to the
-   * request-context / stdio-env resolution via {@link getCliCredentials}.
+   * request-context resolution via {@link getCliCredentials} (which throws
+   * outside an HTTP request).
    */
   credentials?: CliCredentials
   /**
@@ -145,10 +146,11 @@ const SECRET_INLINE = /^(--?[^=]*(?:key|secret|token|password|auth)[^=]*)=(.*)$/
  *   - a bare value equal to a known secret value               -> `***REDACTED***`
  *
  * The second arg supplies the known secret VALUES to catch as bare args. Pass
- * an array of the resolved per-caller credentials (preferred — the keys are no
- * longer in process.env). For backward compatibility a `ProcessEnv` is also
+ * an array of the resolved per-caller credentials (preferred — the keys are
+ * never in process.env). For backward compatibility a `ProcessEnv` is also
  * accepted and its ONEBLINK_ACCESS_KEY/ONEBLINK_SECRET_KEY values are used;
- * omitted, it reads process.env (the stdio-fallback case).
+ * omitted, it reads process.env (a defensive default — the authoritative keys
+ * are the per-caller pair, so always pass that array in real calls).
  *
  * This never promises to catch an arbitrary unlabelled secret — the real
  * control is that we inject auth via ENV, not argv (see runCli). redactArgs is
@@ -232,10 +234,10 @@ export function resolveCliInvocation(
  *
  * Credentials: the PER-CALLER deploy key pair comes from `opts.credentials`
  * (resolved upstream from the request context). When omitted, it is resolved
- * via {@link getCliCredentials} — the per-request context (HTTP) or the env
- * fallback (stdio). Either way it fails CLOSED (rejects, non-secret message)
- * when no credential is available, BEFORE any process is spawned. The pair is
- * placed in the child's env, NEVER in argv and NEVER logged.
+ * via {@link getCliCredentials} — the per-request HTTP context. Either way it
+ * fails CLOSED (rejects, non-secret message) when no credential is available,
+ * BEFORE any process is spawned. The pair is placed in the child's env, NEVER
+ * in argv and NEVER logged.
  *
  * `cliBin` (the CLI binary path) is a per-HOST install detail, not per-caller,
  * so it stays config/env — read via `opts.config` (test seam) else the loaded

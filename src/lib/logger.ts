@@ -5,8 +5,8 @@
  * PII or secrets — no tokens, no user profile details, no full request/response
  * bodies. Log opaque identifiers (ids, status codes, error messages) instead.
  *
- * All output goes to STDERR. On the stdio transport, stdout is the MCP protocol
- * channel and must never carry log lines.
+ * All output goes to STDERR. stdout is left clean for any transport that uses
+ * it as a protocol channel.
  *
  * `fields` is intentionally typed to discourage dumping arbitrary objects.
  * Callers should pass pre-reduced, non-sensitive scalars. A future iteration

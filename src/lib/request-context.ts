@@ -1,13 +1,13 @@
 /**
- * Per-request client context (HTTP path).
+ * Per-request client context (HTTP transport).
  *
- * The HTTP transport resolves a per-tenant OneBlink client for each
- * authenticated request and runs the tool handler inside this context.
- * getClient() reads the context first, so WORKFLOW CODE IS UNCHANGED between
- * stdio and HTTP — it always just calls getClient(). (Acceptance: the Cognito
- * swap touches only the auth adapters, never workflows.)
+ * The HTTP transport builds a per-session OneBlink client from the caller's
+ * header-supplied key pair for each request and runs the tool handler inside
+ * this context. getClient() reads the client from here, so WORKFLOW CODE never
+ * sees credentials — it always just calls getClient().
  *
- * stdio has no context set → getClient() falls back to the env singleton.
+ * HTTP-only: there is no stdio transport and no env fallback. getClient()
+ * throws if called outside runWithClient.
  *
  * It also carries a SEPARATE per-request slot for the `oneblink` CLI's DEPLOY
  * key pair (runWithCliCredentials / currentCliCredentials), consumed by
@@ -42,10 +42,9 @@ export function currentClient(): OneBlinkClient | undefined {
  * into another's). Keeping a parallel ALS slot keeps the two conceptually
  * separable while mirroring runWithClient/currentClient exactly.
  *
- * The HTTP transport resolves these per request (per verified tenant) and runs
- * the handler inside runWithCliCredentials. stdio has no context set →
- * getCliCredentials() falls back to the env key pair (loadCliConfig), exactly
- * as getClient() falls back to the env singleton.
+ * The HTTP transport reads these per request from the caller's headers and
+ * runs the handler inside runWithCliCredentials. getCliCredentials() throws if
+ * called outside that context — HTTP-only, no env fallback.
  */
 const cliStorage = new AsyncLocalStorage<CliCredentials>()
 

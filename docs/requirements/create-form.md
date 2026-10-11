@@ -65,13 +65,17 @@ Header-driven, order-independent. Core columns:
 | `type`    | yes      | matched case-insensitively to an SDK `FormElementType` (D1)        |
 | `parent`  | no       | `label` of the container row this nests under; empty = form root   |
 | `required`| no       | `true`/`false` -> SDK `required` (only on types that support it)   |
-| `options` | no       | options-bearing types; comma tokens `label:value` or bare `label`  |
+| `options` | no       | options-bearing types; `|`- or `,`-separated `label:value` or bare `label` |
 | `prop:*`  | no       | pass-through SDK prop, coerced (bool/number/json), SDK-validated   |
 
 ### Options cell syntax (D3)
 
-Comma-separated tokens, each `label:value` or bare `label` (value defaults to
-label). Example: `Red:red, Green:green, Blue` -> three `ChoiceElementOption`
+`|`- or `,`-separated tokens, each `label:value` or bare `label` (value defaults
+to label). `|` is preferred: the options cell is a single CSV field, so a `,`
+separator forces the whole cell to be CSV-quoted (`"Red:red, Green:green"`)
+whereas `|` needs no quoting (`Red:red|Green:green`). When any `|` is present the
+cell splits on `|` only (a label/value may then contain a comma); otherwise it
+splits on `,`. Example: `Red:red|Green:green|Blue` -> three `ChoiceElementOption`
 `{id,label,value}`. Only valid on options-bearing types
 (`radio|checkboxes|select|autocomplete|compliance`); those auto-set
 `optionsType: 'CUSTOM'`. Options on a non-options type -> fail-fast.

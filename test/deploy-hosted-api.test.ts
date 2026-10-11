@@ -9,13 +9,16 @@ import {
   type DeployHostedApiInput,
 } from '../src/workflows/deploy-hosted-api.ts'
 import type { RunCliOptions, RunCliResult } from '../src/lib/cli-runner.ts'
+import { runWithCliCredentials } from '../src/lib/request-context.ts'
 
-// These tests drive performDeploy WITHOUT a request-credential context, so the
-// tool resolves its deploy keys via the stdio-interim env fallback. Provide a
-// stable pair for that fallback (the subprocess is mocked, so these are never
-// used to authenticate anything real).
-process.env.ONEBLINK_ACCESS_KEY ??= 'ak-test'
-process.env.ONEBLINK_SECRET_KEY ??= 'sk-test'
+// HTTP-only: a deploy tool resolves its keys from the per-request credential
+// context (getCliCredentials throws outside one). These unit tests mock the
+// subprocess, so the pair is never used to authenticate anything real — this
+// helper just supplies a context so performDeploy can run.
+const TEST_CREDS = { accessKey: 'ak-test', secretKey: 'sk-test' }
+function performDeployCtx(...args: Parameters<typeof performDeploy>): ReturnType<typeof performDeploy> {
+  return runWithCliCredentials(TEST_CREDS, () => performDeploy(...args))
+}
 
 /** Fake runCli: records every call, returns canned results per-call (or a default). */
 function recordingRun(
@@ -69,7 +72,7 @@ test('DEPLOY_ENVS is dev/test/prod', () => {
 // --- prod gate (security) -----------------------------------------------
 test('prod gate: env=prod + confirmProduction=false -> isError, runCli NOT called', async () => {
   const { run, calls } = recordingRun()
-  const res = await performDeploy(input({ env: 'prod' }), run)
+  const res = await performDeployCtx(input({ env: 'prod' }), run)
   assert.equal(res.isError, true)
   assert.match(res.content[0]!.text, /confirmProduction/)
   assert.equal(calls.length, 0) // never spawned
@@ -77,7 +80,7 @@ test('prod gate: env=prod + confirmProduction=false -> isError, runCli NOT calle
 
 test('prod gate: env=prod + confirmProduction=true -> deploy proceeds', async () => {
   const { run, calls } = recordingRun([{ exitCode: 0, stdout: 'https://x.api.oneblink.io', stderr: '' }])
-  const res = await performDeploy(input({ env: 'prod', confirmProduction: true }), run)
+  const res = await performDeployCtx(input({ env: 'prod', confirmProduction: true }), run)
   assert.notEqual(res.isError, true)
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0]!.args, ['api', 'deploy', '--env', 'prod', '--force'])
@@ -100,7 +103,7 @@ test('buildDeployArgvs: scope -> scope step FIRST, then deploy', () => {
 test('performDeploy builds correct argv per env and passes projectDir as cwd', async () => {
   for (const env of ['dev', 'test', 'prod'] as const) {
     const { run, calls } = recordingRun()
-    await performDeploy(input({ env, confirmProduction: env === 'prod' }), run)
+    await performDeployCtx(input({ env, confirmProduction: env === 'prod' }), run)
     assert.deepEqual(calls[0]!.args, ['api', 'deploy', '--env', env, '--force'])
     assert.equal(calls[0]!.cwd, 'C:/proj/api')
   }
@@ -109,7 +112,7 @@ test('performDeploy builds correct argv per env and passes projectDir as cwd', a
 // --- scope step runs only when scope provided ---------------------------
 test('scope step runs only when scope is provided (two calls, scope first)', async () => {
   const { run, calls } = recordingRun()
-  await performDeploy(input({ scope: 'c.api.oneblink.io', env: 'dev' }), run)
+  await performDeployCtx(input({ scope: 'c.api.oneblink.io', env: 'dev' }), run)
   assert.equal(calls.length, 2)
   assert.deepEqual(calls[0]!.args, ['api', 'scope', 'c.api.oneblink.io'])
   assert.deepEqual(calls[1]!.args, ['api', 'deploy', '--env', 'dev', '--force'])
@@ -117,7 +120,7 @@ test('scope step runs only when scope is provided (two calls, scope first)', asy
 
 test('no scope -> exactly one call (deploy only)', async () => {
   const { run, calls } = recordingRun()
-  await performDeploy(input({ env: 'dev' }), run)
+  await performDeployCtx(input({ env: 'dev' }), run)
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0]!.args, ['api', 'deploy', '--env', 'dev', '--force'])
 })
@@ -125,7 +128,7 @@ test('no scope -> exactly one call (deploy only)', async () => {
 // --- non-zero exit surfaces as isError, no secret in the message --------
 test('non-zero exit -> isError with stderr tail, deploy stops', async () => {
   const { run, calls } = recordingRun([{ exitCode: 2, stdout: '', stderr: 'deploy failed: config invalid' }])
-  const res = await performDeploy(input({ env: 'dev' }), run)
+  const res = await performDeployCtx(input({ env: 'dev' }), run)
   assert.equal(res.isError, true)
   assert.match(res.content[0]!.text, /exit 2/)
   assert.match(res.content[0]!.text, /config invalid/)
@@ -134,7 +137,7 @@ test('non-zero exit -> isError with stderr tail, deploy stops', async () => {
 
 test('scope-step failure stops before deploy (deploy step never runs)', async () => {
   const { run, calls } = recordingRun([{ exitCode: 1, stdout: '', stderr: 'scope rejected' }])
-  const res = await performDeploy(input({ scope: 'bad.api.oneblink.io', env: 'dev' }), run)
+  const res = await performDeployCtx(input({ scope: 'bad.api.oneblink.io', env: 'dev' }), run)
   assert.equal(res.isError, true)
   assert.equal(calls.length, 1) // only the scope step ran
   assert.deepEqual(calls[0]!.args, ['api', 'scope', 'bad.api.oneblink.io'])
@@ -144,7 +147,7 @@ test('error message does not leak injected credentials', async () => {
   // The runner injects creds into env, never argv — assert the surfaced error
   // carries no secret-looking token from a hostile stderr.
   const { run } = recordingRun([{ exitCode: 1, stdout: '', stderr: 'generic failure' }])
-  const res = await performDeploy(input({ env: 'dev' }), run)
+  const res = await performDeployCtx(input({ env: 'dev' }), run)
   assert.doesNotMatch(res.content[0]!.text, /ONEBLINK_(ACCESS|SECRET)_KEY/)
 })
 
@@ -153,7 +156,7 @@ test('a runner rejection (spawn/timeout) is caught and returned as isError', asy
   const run = async (): Promise<RunCliResult> => {
     throw new Error('oneblink CLI timed out after 120000ms')
   }
-  const res = await performDeploy(input({ env: 'dev' }), run)
+  const res = await performDeployCtx(input({ env: 'dev' }), run)
   assert.equal(res.isError, true)
   assert.match(res.content[0]!.text, /timed out/)
 })
@@ -172,7 +175,7 @@ test('parseDeployedUrl returns null when there is no URL', () => {
 
 test('success result includes env and parsed url', async () => {
   const { run } = recordingRun([{ exitCode: 0, stdout: 'URL: https://c.api.oneblink.io', stderr: '' }])
-  const res = await performDeploy(input({ env: 'dev' }), run)
+  const res = await performDeployCtx(input({ env: 'dev' }), run)
   assert.notEqual(res.isError, true)
   const body = JSON.parse(res.content[0]!.text)
   assert.equal(body.deployed, true)

@@ -74,25 +74,16 @@ test('resolveCliInvocation: explicit cliBin overrides the default name', () => {
   assert.equal(w.prefixArgs[3], 'C:/tools/oneblink.cmd')
 })
 
-// --- runCli: fail closed when there is NO per-caller credential AND no env ---
-test('runCli fails closed (rejects) when no credentials and no env fallback', async () => {
+// --- runCli: fail closed when there is NO per-caller credential (HTTP-only) --
+test('runCli fails closed (rejects) when no credentials and no request context', async () => {
   const { exec, calls } = recordingExec()
-  const savedAk = process.env.ONEBLINK_ACCESS_KEY
-  const savedSk = process.env.ONEBLINK_SECRET_KEY
-  delete process.env.ONEBLINK_ACCESS_KEY
-  delete process.env.ONEBLINK_SECRET_KEY
-  try {
-    await assert.rejects(
-      // No `credentials`, no request context, no env pair -> getCliCredentials
-      // throws via loadCliConfig BEFORE any spawn.
-      () => runCli({ args: ['api', 'deploy'], cwd: process.cwd(), _exec: exec }),
-      /ONEBLINK_ACCESS_KEY|ONEBLINK_SECRET_KEY/,
-    )
-    assert.equal(calls.length, 0)
-  } finally {
-    if (savedAk !== undefined) process.env.ONEBLINK_ACCESS_KEY = savedAk
-    if (savedSk !== undefined) process.env.ONEBLINK_SECRET_KEY = savedSk
-  }
+  await assert.rejects(
+    // No `credentials` and no request context -> getCliCredentials throws
+    // BEFORE any spawn (HTTP-only: no env fallback).
+    () => runCli({ args: ['api', 'deploy'], cwd: process.cwd(), _exec: exec }),
+    /outside an authenticated HTTP request/,
+  )
+  assert.equal(calls.length, 0)
 })
 
 // --- runCli: argv-array contract (no shell) + env injection ---

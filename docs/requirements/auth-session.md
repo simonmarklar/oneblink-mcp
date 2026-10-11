@@ -1,12 +1,63 @@
 ---
-status: proposed
+status: accepted
 last_verified: 2026-10-11
 verified_against:
-  - "PoC #4 (Keycloak OAuth) VERIFIED live 2026-10-11: token->broker->list_forms 200"
-  - "target HTTP/Cognito design is PROPOSED, not built (Q1-Q5 open)"
+  - "Header-credential model VERIFIED 2026-10-11: 225/225 tests pass; HTTP-only (stdio transport + env credential path removed); HTTP builds a per-session client from X-OneBlink-* headers; getClient()/workflows unchanged"
+  - "SUPERSEDES the earlier OAuth-broker PoC (Keycloak) design below, kept for history"
 ---
 
 # Requirements: Session Authentication & Credential Handling
+
+> **DECISION REVERSAL (2026-10-11).** The caller now supplies its OWN OneBlink
+> Developer Key **per session, via request headers**, instead of the server
+> brokering a tenant key behind an OAuth token. The OAuth-broker design in the
+> rest of this document is **superseded** and kept only as history. If the two
+> conflict, this section wins.
+>
+> **Current model — per-session credential headers (HTTP transport):**
+>
+> | Header | Carries | Required |
+> |---|---|---|
+> | `X-OneBlink-Access-Key` | SDK Developer Key — access key | yes |
+> | `X-OneBlink-Secret-Key` | SDK Developer Key — secret key | yes |
+> | `X-OneBlink-CLI-Access-Key` | CLI **deploy** key — access key | no* |
+> | `X-OneBlink-CLI-Secret-Key` | CLI **deploy** key — secret key | no* |
+>
+> \* When the CLI headers are omitted, the SDK pair is reused for deploys (one
+> key does both). Supplying one CLI header without the other fails closed.
+>
+> - The server holds **no** keys: it reads neither `.env` nor any key file, and
+>   there is **no OAuth broker, no Keycloak, no tenant→key mapping, and no stdio
+>   transport** (the stdio + env credential path was removed — HTTP-only).
+> - Each request builds a client from **that request's own header pair**
+>   (`buildClientFromCredentials`) and runs the tool call inside the per-request
+>   context, so `getClient()` / `getCliCredentials()` and every workflow read
+>   the key from that context and are **unchanged**. `getClient()` throws if a
+>   tool is invoked outside a request. The seam that used to hold the
+>   `TokenVerifier` + `CredentialResolver` is gone; `src/lib/auth/` now holds
+>   only `header-credentials.ts`.
+> - **Why headers, not tool args:** a credential passed as a tool-call argument
+>   lands in the model's context, the transcript, and tool logs. Headers do not.
+>   So the one hard rule kept from the design below is: **the secret is never a
+>   tool argument and never returned to the client.**
+> - **Fail closed:** a request missing a required credential header → `401`,
+>   message naming the HEADER, never the value (A09). The `401` carries **no**
+>   `WWW-Authenticate` header: this is not an OAuth resource server, so an MCP
+>   client must NOT treat the 401 as an OAuth challenge and attempt RFC 9728
+>   metadata discovery / RFC 7591 Dynamic Client Registration (there are no such
+>   endpoints — doing so 404s). Regression-guarded in `test/http-transport.test.ts`.
+> - **Transport security:** PoC binds loopback only. A hosted deployment MUST
+>   terminate TLS in front so the header pair is never sent in clear text.
+>
+> **Why the reversal:** the OAuth-broker model required the operator to
+> pre-provision every tenant's key in a server-side store (`.env` /
+> `oneblink-keys.local.json` / Secrets Manager) and stand up an Authorization
+> Server — the caller could not just use their own key. The product need is for
+> each caller to present their own OneBlink key at connect time. Headers deliver
+> that while still keeping the secret out of model context/history/logs.
+>
+> ---
+> *Historical OAuth-broker design follows (superseded).*
 
 **Status:** Draft for review
 **Scope:** How the server obtains and uses OneBlink Developer Keys per caller.

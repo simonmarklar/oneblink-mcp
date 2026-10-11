@@ -1,7 +1,7 @@
 /**
  * Builds the MCP server instance and registers all workflow capabilities.
- * Keeping this separate from index.ts lets tests construct a server without
- * attaching a stdio transport.
+ * Keeping this separate from the transport entry point (http.ts) lets tests
+ * construct a server without attaching an HTTP transport.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { registerWorkflows } from './workflows/index.js'

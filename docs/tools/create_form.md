@@ -1,6 +1,6 @@
 # create_form
 
-Create a OneBlink form in one call, taking its elements EITHER as a human-authored CSV (elementsCsv) or a well-defined SDK FormElement[] (elements) - exactly one source. Reach for it when a spreadsheet author or a machine has a form definition and you want it created without hand-building the SDK payload: types are matched case-insensitively to the SDK type set, names derived from labels, options parsed from Label:value tokens, nesting from a parent column or nested elements. The whole input is validated fail-fast (human- and machine-readable errors) before any API call, organisationId is derived server-side from the credential, and the form is created via Forms.createForm.
+Create a OneBlink form in one call, taking its elements EITHER as a human-authored CSV (elementsCsv) or a well-defined SDK FormElement[] (elements) - exactly one source. Reach for it when a spreadsheet author or a machine has a form definition and you want it created without hand-building the SDK payload: types are matched case-insensitively to the SDK type set, names derived from labels, options parsed from Label:value tokens separated by "|" (preferred) or ",", nesting from a parent column or nested elements. The whole input is validated fail-fast (human- and machine-readable errors) before any API call, organisationId is derived server-side from the credential, and the form is created via Forms.createForm.
 
 ## Parameters
 

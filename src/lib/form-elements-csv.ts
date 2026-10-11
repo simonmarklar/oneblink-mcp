@@ -124,7 +124,7 @@ function resolveType(input: string): GeneratedFormElementType | undefined {
   return FORM_ELEMENT_TYPES.find((t) => t.toLowerCase() === lower)
 }
 
-/** Parse the options cell: comma tokens, each `label:value` or bare `label`. */
+/** Parse the options cell: `|`- or `,`-separated tokens, each `label:value` or bare `label`. */
 function parseOptions(cell: string): Array<{ label: string; value: string }> {
   return splitTopLevel(cell)
     .map((tok) => tok.trim())
@@ -138,9 +138,16 @@ function parseOptions(cell: string): Array<{ label: string; value: string }> {
     })
 }
 
-/** Split on commas (options cell already a single CSV field, so plain split). */
+/**
+ * Split the options cell into tokens. Accepts EITHER `|` or `,` as the token
+ * separator. `|` is the preferred delimiter because the options cell is a single
+ * CSV field: a `,` separator forces the whole cell to be CSV-quoted
+ * ("NSW:nsw, VIC:vic") whereas `|` needs no quoting
+ * (NSW:nsw|VIC:vic). When any `|` is present the cell is split on `|` only, so a
+ * label/value may itself contain a comma; otherwise it falls back to `,`.
+ */
 function splitTopLevel(s: string): string[] {
-  return s.split(',')
+  return s.includes('|') ? s.split('|') : s.split(',')
 }
 
 /** Coerce a prop:* string value to boolean / number / JSON / string. */
@@ -227,7 +234,7 @@ export function compileCsv(text: string): CsvCompileResult {
       } else {
         const opts = parseOptions(optCell)
         if (opts.length === 0) {
-          errors.push({ row: row.rowNum, column: 'options', value: optCell, error: 'options cell is non-empty but produced no valid options.', fixHint: 'Use "Label:value, Label2:value2" or bare "Label".' })
+          errors.push({ row: row.rowNum, column: 'options', value: optCell, error: 'options cell is non-empty but produced no valid options.', fixHint: 'Use "Label:value|Label2:value2" (pipe-separated) or bare "Label".' })
         } else {
           el['options'] = opts // id assigned by normalizer; optionsType set below
           el['optionsType'] = 'CUSTOM'

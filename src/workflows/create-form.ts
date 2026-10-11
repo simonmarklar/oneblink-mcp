@@ -40,7 +40,7 @@ const baseShape = {
   redirectUrl: z.string().url().optional().describe('Required when an action is URL.'),
   isMultiPage: z.boolean().optional().describe('Omit to infer from the elements (true iff root is pages). Validated either way.'),
   elementsCsv: z.string().min(1).optional().describe('CSV of element rows (label,type,parent,required,options,prop:*). Mutually exclusive with elements.'),
-  elements: z.array(z.record(z.unknown())).optional().describe('Well-defined SDK FormElement[]. Mutually exclusive with elementsCsv.'),
+  elements: z.array(z.object({}).passthrough()).optional().describe('Well-defined SDK FormElement[]. Mutually exclusive with elementsCsv.'),
 } as const
 
 const inputSchema = z.object(baseShape)
@@ -58,7 +58,8 @@ export function registerCreateForm(server: McpServer): void {
     'Create a OneBlink form from either a human-authored CSV of element rows ' +
       '(elementsCsv) or a well-defined SDK FormElement[] (elements) — exactly one. ' +
       'Element types are matched case-insensitively to the SDK type set; names are ' +
-      'derived from labels (snake_case); options use "Label:value" tokens; nesting ' +
+      'derived from labels (snake_case); options are "Label:value" tokens ' +
+      'separated by "|" (preferred) or "," ; nesting ' +
       'uses a parent column (CSV) or nested elements (definition). The whole input ' +
       'is validated fail-fast with human- and machine-readable errors before any ' +
       'API call.',

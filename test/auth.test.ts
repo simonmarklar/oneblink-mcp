@@ -1,66 +1,95 @@
 /**
- * Auth seam tests — no Keycloak, no live SDK.
- * Covers: credential resolver (resolve / fail-closed / malformed), per-request
- * client context fallback, and getClientFor per-tenant caching.
+ * Credential-source tests — no network, no live SDK.
+ * Covers: header credential extraction (SDK + CLI, fail-closed), per-request
+ * client context fallback, and buildClientFromCredentials from a header pair.
  */
-import { describe, it, beforeEach } from 'node:test'
+import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { FileCredentialResolver } from '../src/lib/auth/file-resolver.js'
+import {
+  sdkCredentialsFromHeaders,
+  cliCredentialsFromHeaders,
+  MissingCredentialsError,
+  SDK_ACCESS_KEY_HEADER,
+  SDK_SECRET_KEY_HEADER,
+  CLI_ACCESS_KEY_HEADER,
+  CLI_SECRET_KEY_HEADER,
+  type RequestHeaders,
+} from '../src/lib/auth/header-credentials.js'
 import { currentClient, runWithClient } from '../src/lib/request-context.js'
 import {
   getClient,
-  getClientFor,
-  _resetClient,
-  _resetTenantClients,
+  buildClientFromCredentials,
   type OneBlinkClient,
 } from '../src/lib/oneblink-client.js'
-import type { AuthContext, CredentialResolver } from '../src/lib/auth/types.js'
 
-function tmpKeyFile(contents: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ob-keys-'))
-  const path = join(dir, 'keys.json')
-  writeFileSync(path, contents)
-  return path
-}
-
-describe('FileCredentialResolver', () => {
-  it('resolves a configured tenant key', async () => {
-    const path = tmpKeyFile(JSON.stringify({ acme: { accessKey: 'AK', secretKey: 'SK' } }))
-    const r = new FileCredentialResolver(path)
-    const key = await r.resolve('acme')
-    assert.deepEqual(key, { accessKey: 'AK', secretKey: 'SK' })
+describe('sdkCredentialsFromHeaders', () => {
+  it('reads the SDK key pair from the request headers', () => {
+    const headers: RequestHeaders = {
+      [SDK_ACCESS_KEY_HEADER]: 'AK',
+      [SDK_SECRET_KEY_HEADER]: 'SK',
+    }
+    assert.deepEqual(sdkCredentialsFromHeaders(headers), { accessKey: 'AK', secretKey: 'SK' })
   })
 
-  it('fails closed for an unknown tenant', async () => {
-    const path = tmpKeyFile(JSON.stringify({ acme: { accessKey: 'AK', secretKey: 'SK' } }))
-    const r = new FileCredentialResolver(path)
-    await assert.rejects(() => r.resolve('ghost'), /no OneBlink key configured for tenant 'ghost'/)
+  it('trims surrounding whitespace', () => {
+    const headers: RequestHeaders = {
+      [SDK_ACCESS_KEY_HEADER]: '  AK  ',
+      [SDK_SECRET_KEY_HEADER]: '\tSK\n',
+    }
+    assert.deepEqual(sdkCredentialsFromHeaders(headers), { accessKey: 'AK', secretKey: 'SK' })
   })
 
-  it('rejects a malformed key file', async () => {
-    const path = tmpKeyFile(JSON.stringify({ acme: { accessKey: 'AK' } })) // missing secretKey
-    const r = new FileCredentialResolver(path)
-    await assert.rejects(() => r.resolve('acme'), /malformed/)
+  it('collapses an array-valued header to its first entry', () => {
+    const headers: RequestHeaders = {
+      [SDK_ACCESS_KEY_HEADER]: ['AK', 'other'],
+      [SDK_SECRET_KEY_HEADER]: 'SK',
+    }
+    assert.deepEqual(sdkCredentialsFromHeaders(headers), { accessKey: 'AK', secretKey: 'SK' })
   })
 
-  it('reports an unreadable file without echoing fs internals', async () => {
-    const r = new FileCredentialResolver(join(tmpdir(), 'does-not-exist-xyz.json'))
-    await assert.rejects(() => r.resolve('acme'), /credential file not readable/)
-  })
-
-  it('never includes the secret in the thrown message', async () => {
-    const path = tmpKeyFile(JSON.stringify({ acme: { accessKey: 'AK', secretKey: 'TOPSECRET' } }))
-    const r = new FileCredentialResolver(path)
+  it('fails closed when the access-key header is missing, naming the header', () => {
+    const headers: RequestHeaders = { [SDK_SECRET_KEY_HEADER]: 'SK' }
     try {
-      await r.resolve('ghost')
+      sdkCredentialsFromHeaders(headers)
       assert.fail('should have thrown')
     } catch (err) {
-      assert.ok(err instanceof Error)
-      assert.ok(!err.message.includes('TOPSECRET'))
+      assert.ok(err instanceof MissingCredentialsError)
+      assert.ok(err.message.includes(SDK_ACCESS_KEY_HEADER))
+      assert.ok(!err.message.includes('SK')) // never echo the value
     }
+  })
+
+  it('fails closed when both headers are missing', () => {
+    assert.throws(() => sdkCredentialsFromHeaders({}), MissingCredentialsError)
+  })
+
+  it('treats an empty-string header as missing', () => {
+    const headers: RequestHeaders = { [SDK_ACCESS_KEY_HEADER]: '  ', [SDK_SECRET_KEY_HEADER]: 'SK' }
+    assert.throws(() => sdkCredentialsFromHeaders(headers), MissingCredentialsError)
+  })
+})
+
+describe('cliCredentialsFromHeaders', () => {
+  const sdk = { accessKey: 'SDK-AK', secretKey: 'SDK-SK' }
+
+  it('reuses the SDK pair when no CLI headers are present', () => {
+    assert.deepEqual(cliCredentialsFromHeaders({}, sdk), { accessKey: 'SDK-AK', secretKey: 'SDK-SK' })
+  })
+
+  it('reads a dedicated CLI deploy pair when both CLI headers are present', () => {
+    const headers: RequestHeaders = {
+      [CLI_ACCESS_KEY_HEADER]: 'CLI-AK',
+      [CLI_SECRET_KEY_HEADER]: 'CLI-SK',
+    }
+    assert.deepEqual(cliCredentialsFromHeaders(headers, sdk), {
+      accessKey: 'CLI-AK',
+      secretKey: 'CLI-SK',
+    })
+  })
+
+  it('fails closed when only one CLI header is present (no silent mixing)', () => {
+    const headers: RequestHeaders = { [CLI_ACCESS_KEY_HEADER]: 'CLI-AK' }
+    assert.throws(() => cliCredentialsFromHeaders(headers, sdk), MissingCredentialsError)
   })
 })
 
@@ -74,37 +103,25 @@ describe('request context', () => {
     await runWithClient(fake, async () => {
       assert.equal(getClient(), fake)
     })
-    // and falls back outside the context (to the env singleton path)
     assert.equal(currentClient(), undefined)
+  })
+
+  it('getClient throws when called outside a request context (HTTP-only)', () => {
+    assert.throws(() => getClient(), /outside an authenticated HTTP request/)
   })
 })
 
-describe('getClientFor', () => {
-  beforeEach(() => {
-    _resetClient()
-    _resetTenantClients()
-    process.env.ONEBLINK_ACCESS_KEY = 'env-ak'
-    process.env.ONEBLINK_SECRET_KEY = 'env-sk'
+describe('buildClientFromCredentials', () => {
+  it('builds a client whose sdkOptions are the supplied header pair', () => {
+    const client = buildClientFromCredentials({ accessKey: 'ak-session', secretKey: 'sk-session' })
+    assert.equal(client.sdkOptions.accessKey, 'ak-session')
+    assert.equal(client.sdkOptions.secretKey, 'sk-session')
   })
 
-  const resolver: CredentialResolver = {
-    async resolve(tenant: string) {
-      return { accessKey: `ak-${tenant}`, secretKey: `sk-${tenant}` }
-    },
-  }
-  const auth = (tenant: string): AuthContext => ({ tenant, subject: 'sub', scopes: [] })
-
-  it('resolves per-tenant SDK options', async () => {
-    const client = await getClientFor(auth('acme'), resolver)
-    assert.equal(client.sdkOptions.accessKey, 'ak-acme')
-    assert.equal(client.sdkOptions.secretKey, 'sk-acme')
-  })
-
-  it('caches per tenant (same instance for repeat tenant)', async () => {
-    const a1 = await getClientFor(auth('acme'), resolver)
-    const a2 = await getClientFor(auth('acme'), resolver)
-    const b = await getClientFor(auth('other'), resolver)
-    assert.equal(a1, a2)
-    assert.notEqual(a1, b)
+  it('builds a distinct client per session (no shared cache)', () => {
+    const a = buildClientFromCredentials({ accessKey: 'ak-a', secretKey: 'sk-a' })
+    const b = buildClientFromCredentials({ accessKey: 'ak-b', secretKey: 'sk-b' })
+    assert.notEqual(a, b)
+    assert.notEqual(a.sdkOptions.secretKey, b.sdkOptions.secretKey)
   })
 })

@@ -21,15 +21,13 @@
  * directly, so auth and tenant selection stay in one place.
  *
  * CREDENTIAL SOURCE (steering rule 5): the OneBlink key comes from the current
- * auth context, resolved by a CredentialResolver.
- *   - stdio interim: getClient() with no args → env (loadConfig), one identity.
- *   - HTTP: getClientFor(auth, resolver) → per-tenant key from the resolver.
- * Workflow code calls getClient() and is unaware which path produced the key;
- * swapping the resolver (local file → Secrets Manager) never touches it.
+ * request only — the caller supplies its own key pair per session via request
+ * headers (auth/header-credentials.ts); http.ts builds a client with
+ * buildClientFromCredentials() and binds it with runWithClient(). getClient()
+ * reads it from that context. There is no server-held key and no env fallback.
  */
-import { loadConfig, loadTenant, type Config } from './config.js'
+import { loadTenant, type Config } from './config.js'
 import { Forms, FormsAppEnvironments, EmailTemplates } from '@oneblink/sdk'
-import type { AuthContext, CredentialResolver } from './auth/types.js'
 import { currentClient } from './request-context.js'
 
 /** Developer Key options object every SDK service constructor accepts. */
@@ -74,64 +72,45 @@ function buildClient(sdkOptions: SdkConstructorOptions, config: Config): OneBlin
   }
 }
 
-// --- stdio interim path: process-global singleton from env ------------------
-
-let cached: OneBlinkClient | undefined
+// --- HTTP-only: the client comes from the per-request context ---------------
 
 /**
- * Returns the OneBlink client for the current call.
- *   - HTTP: the per-request, per-tenant client bound by the transport
- *     (runWithClient) — brokered from the resolved Developer Key.
- *   - stdio interim: a lazily-constructed process-global singleton from the
- *     env (loadConfig), one process = one identity.
- * Workflow code calls this with no args and is unaware which path produced the
- * key. Credentials are never logged.
+ * Returns the OneBlink client for the current call. HTTP-only: the client is
+ * built from the caller's own header-supplied key pair and bound in the
+ * per-request context by http.ts (runWithClient). There is no server-held key
+ * and no process-global fallback.
+ *
+ * Throws when called outside a request context — a workflow must only run
+ * inside runWithClient. Credentials are never logged.
  */
 export function getClient(): OneBlinkClient {
   const reqClient = currentClient()
-  if (reqClient) return reqClient
-  if (cached) return cached
-  const config = loadConfig()
-  cached = buildClient({ accessKey: config.accessKey, secretKey: config.secretKey }, config)
-  return cached
+  if (!reqClient) {
+    throw new Error('no OneBlink client in context: a tool ran outside an authenticated HTTP request')
+  }
+  return reqClient
 }
 
-/** Reset the cached stdio client. Test-only. */
-export function _resetClient(): void {
-  cached = undefined
-}
-
-// --- HTTP path: per-auth-context, tenant-keyed cache ------------------------
-
-const perTenant = new Map<string, OneBlinkClient>()
+// --- HTTP path: per-session credentials from the request --------------------
 
 /**
- * Returns a client for a verified caller. The OneBlink key is resolved per
- * tenant via the CredentialResolver (local file in PoC, Secrets Manager in
- * prod). Cached per tenant. The key never leaves this module.
+ * Build a client from a key pair the CALLER supplied on this HTTP session (via
+ * request headers; see auth/header-credentials.ts). There is no tenant broker
+ * and no server-held key: the credential IS the request's header pair, so each
+ * session gets its own client built from its own keys.
+ *
+ * Not cached across requests: different sessions carry different keys, and the
+ * key pair is the identity here. (A per-key-pair cache would key the cache on
+ * the secret itself — avoided; client construction is cheap.)
+ *
+ * The SDK tenant (Console / US / CivicPlus) is still a per-environment,
+ * non-secret server setting (loadTenant), unchanged by the credential source.
  */
-export async function getClientFor(
-  auth: AuthContext,
-  resolver: CredentialResolver,
-): Promise<OneBlinkClient> {
-  const existing = perTenant.get(auth.tenant)
-  if (existing) return existing
-  const sdkOptions = await resolver.resolve(auth.tenant)
-  // Credential-free tenant selection: the key came from the resolver above,
-  // so we must NOT call loadConfig() (which requires the stdio env key pair
-  // the brokered HTTP path doesn't have). We only need which SDK tenant to
-  // target. Per-caller tenant mapping is a future enhancement.
+export function buildClientFromCredentials(sdkOptions: SdkConstructorOptions): OneBlinkClient {
   const config: Config = {
     accessKey: sdkOptions.accessKey,
     secretKey: sdkOptions.secretKey,
     tenant: loadTenant(),
   }
-  const client = buildClient(sdkOptions, config)
-  perTenant.set(auth.tenant, client)
-  return client
-}
-
-/** Reset the per-tenant cache. Test-only. */
-export function _resetTenantClients(): void {
-  perTenant.clear()
+  return buildClient(sdkOptions, config)
 }
