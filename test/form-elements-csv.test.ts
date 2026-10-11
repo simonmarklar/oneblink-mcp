@@ -79,6 +79,20 @@ test('options cell parses PIPE-separated label:value tokens (no CSV quoting need
   assert.equal(res.elements[0]?.optionsType, 'CUSTOM')
 })
 
+test('options cell parses PIPE-separated BARE labels (value defaults to label)', () => {
+  // Bare labels (no ":value") on the pipe path: each value defaults to its
+  // label, and a mixed cell (bare + label:value) works too.
+  const res = build('label,type,options\nColour,radio,Red|Green|Blue:blue\n')
+  assert.equal(res.errors.length, 0)
+  const opts = res.elements[0]?.options as Array<{ label: string; value: string; id: string }>
+  assert.equal(opts.length, 3)
+  assert.deepEqual({ label: opts[0]!.label, value: opts[0]!.value }, { label: 'Red', value: 'Red' })
+  assert.deepEqual({ label: opts[1]!.label, value: opts[1]!.value }, { label: 'Green', value: 'Green' })
+  assert.deepEqual({ label: opts[2]!.label, value: opts[2]!.value }, { label: 'Blue', value: 'blue' })
+  assert.ok(opts.every((o) => typeof o.id === 'string'))
+  assert.equal(res.elements[0]?.optionsType, 'CUSTOM')
+})
+
 test('options on a non-options type fails fast', () => {
   const compiled = compileCsv('label,type,options\nName,text,"a,b"\n')
   assert.equal(compiled.errors.length, 1)
