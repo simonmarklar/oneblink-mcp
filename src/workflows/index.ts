@@ -49,6 +49,7 @@ import { registerDeployHostedApi } from './deploy-hosted-api.js'
 import { registerDeployCdn } from './deploy-cdn.js'
 import { registerSetApprovalFlow } from './set-approval-flow.js'
 import { registerSetFormPersonalisation } from './set-form-personalisation.js'
+import { registerSetFormServerValidation } from './set-form-server-validation.js'
 import { registerCreateForm } from './create-form.js'
 
 export function registerWorkflows(server: McpServer): void {
@@ -62,5 +63,6 @@ export function registerWorkflows(server: McpServer): void {
   registerDeployCdn(server)
   registerSetApprovalFlow(server)
   registerSetFormPersonalisation(server)
+  registerSetFormServerValidation(server)
   registerCreateForm(server)
 }
