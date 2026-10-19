@@ -30,12 +30,14 @@ errors a human can read AND a machine can autofix.
 | source arg      | audience            | content                 |
 | --------------- | ------------------- | ----------------------- |
 | `elementsCsv`   | spreadsheet authors | CSV text                |
+| `elementsYaml`  | hand-authors / devs | YAML text (hierarchical) |
 | `elements`      | devs / machines     | SDK `FormElement[]` JSON |
 
-Both omitted OR both present -> fail-fast (`element_source` error). No precedence.
+All omitted OR more than one present -> fail-fast (`element_source` error). No precedence.
 
-`elementsCsv` is sugar that COMPILES to the same `FormElement[]` the `elements`
-mode accepts, then both run the shared normalizer. "Mode A emits Mode B's input."
+`elementsCsv` and `elementsYaml` are both sugar that COMPILE to the same
+`FormElement[]` the `elements` mode accepts, then all three run the shared
+normalizer. "Mode A/B emits Mode C's input."
 
 ## Form scaffold args (both modes)
 
@@ -79,6 +81,61 @@ splits on `,`. Example: `Red:red|Green:green|Blue` -> three `ChoiceElementOption
 `{id,label,value}`. Only valid on options-bearing types
 (`radio|checkboxes|select|autocomplete|compliance`); those auto-set
 `optionsType: 'CUSTOM'`. Options on a non-options type -> fail-fast.
+
+## YAML schema (hierarchical peer of CSV)
+
+`elementsYaml` is the hand-authored YAML equivalent of `elementsCsv`. YAML is
+hierarchical, so it uses NATURAL NESTING (a `children:` list) in place of the
+CSV flat `parent` column — the normalized output is identical to the equivalent
+CSV input. The document is EITHER a top-level `elements:` list OR a bare
+top-level list of elements.
+
+Each element is a mapping:
+
+| key        | required | meaning                                                             |
+| ---------- | -------- | ------------------------------------------------------------------- |
+| `label`    | yes      | display text                                                        |
+| `type`     | yes      | matched case-insensitively to an SDK `FormElementType` (D1)         |
+| `required` | no       | boolean -> SDK `required`                                           |
+| `options`  | no       | list of `Label:value` / bare `Label` strings OR `{ label, value }` maps |
+| `children` | no       | list of nested elements (container types only)                      |
+| *(any other key)* | no | passed through verbatim to the SDK element (typed-YAML equivalent of the CSV `prop:*` columns — no prefix needed, YAML already carries the value's type) |
+
+Example (multi-page, nested, options):
+
+```yaml
+elements:
+  - label: Page 1
+    type: page
+    children:
+      - label: Details
+        type: section
+        children:
+          - label: Full Name
+            type: text
+            required: true
+      - label: State
+        type: select
+        options:
+          - New South Wales:NSW
+          - Victoria:VIC
+          - label: Queensland
+            value: QLD
+```
+
+Same decisions as CSV apply: D1 (type vocabulary), D2 (name generation),
+D3 (option tokens), D5 (isMultiPage inferred), D6 (shared normalizer),
+D7 (collect ALL errors; unknown type -> suggestion + allowedTypes + fixHint).
+Structural failures mirror CSV: `children` on a leaf type, options on a
+non-options type, unknown type, duplicate labels, multipage rule. YAML-mode
+errors carry a dotted `path` (e.g. `elements[0].children[1].type`) instead of
+`row`/`column`.
+
+Security (A03): YAML is parsed with the `yaml` library's default document parse,
+which resolves ONLY core YAML tags (str/int/bool/map/seq). Custom/unknown tags
+(e.g. `!!js/function`-style) are NOT resolved into executable code or host
+objects; the compiler treats any such tag as a fatal error, so only plain
+scalars, maps and lists reach the compiler. `yaml` is pinned exact (`2.9.1`).
 
 ## Decisions
 
@@ -150,15 +207,47 @@ Never the raw created `Form`. Return:
   `prop:*` JSON values parsed with `JSON.parse` in a try/catch, never `eval`.
 - A09: never log CSV content or element labels at info; log counts + formId only.
 
+## Pre-flight resource-reference validation (added 2026-10-12)
+
+See `docs/requirements/create-form-resource-refs.md` for the full spec. Summary of
+what this adds to `create_form`:
+
+- New input `validateResourceRefs: boolean` (default `true`).
+- After normalization, the element tree (including nested `.elements`) is walked
+  to collect every supporting-resource id it references:
+  `dynamicOptionSetId` (when `optionsType:'DYNAMIC'`) -> element LIST;
+  `dataLookupId` (when `isDataLookup:true`) and `elementLookupId`
+  (when `isElementLookup:true`) -> element LOOKUP.
+- Each KIND is resolved ONCE (batched) via `searchFormElementLists` /
+  `searchFormElementLookups` under the derived org, then the org-wide rows are
+  filtered to the target `formsAppEnvironmentId` (resources are
+  environment-scoped). No per-element fetch (no N+1).
+- Any referenced id not present in the target environment -> a D7 structured
+  error `{ path, value, error, fixHint }`, collected with all others; nothing
+  reaches `createForm` until clean.
+- `validateResourceRefs:false` skips the extra round-trips when ids are known good.
+- Security: A01 — the existence checks run under the same derived org as the
+  create (no new scope surface). A09 — only `{refsChecked, refsMissing}` COUNTS
+  are logged, never ids-as-content or element labels.
+
+Ref-collection + validation live in a pure module `src/lib/form-resource-refs.ts`
+(`collectResourceRefs`, `validateResourceRefs`, `idsInEnvironment`); `create-form.ts`
+does the batched SDK search and wires them in. Tests:
+`test/create-form-resource-refs.test.ts`.
+
 ## Files
 
 ```
 scripts/gen-form-element-types.ts     # TS compiler API -> committed constant (D1)
 src/lib/generated/form-element-types.ts  # GENERATED, committed
 src/lib/form-elements-csv.ts          # CSV text -> FormElement[] | errors (pure)
+src/lib/form-elements-yaml.ts         # YAML text -> FormElement[] | errors (pure, natural nesting)
 src/lib/form-normalize.ts             # shared id/name backfill + structural checks
+src/lib/form-resource-refs.ts         # pure ref collection + env-scoped existence validation
 src/workflows/create-form.ts          # create_form tool
 test/form-elements-csv.test.ts
+test/form-elements-yaml.test.ts
 test/form-normalize.test.ts
 test/create-form.test.ts
+test/create-form-resource-refs.test.ts
 ```
