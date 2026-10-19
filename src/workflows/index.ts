@@ -52,6 +52,12 @@ import { registerSetFormPersonalisation } from './set-form-personalisation.js'
 import { registerSetFormServerValidation } from './set-form-server-validation.js'
 import { registerCreateForm } from './create-form.js'
 import { registerDeleteForm } from './delete-form.js'
+import { registerCreateElementList } from './create-element-list.js'
+import { registerListElementLists } from './list-element-lists.js'
+import { registerCreateElementLookup } from './create-element-lookup.js'
+import { registerListElementLookups } from './list-element-lookups.js'
+import { registerCreateEmailTemplate } from './create-email-template.js'
+import { registerCreateFormWithResources } from './create-form-with-resources.js'
 
 export function registerWorkflows(server: McpServer): void {
   registerListForms(server)
@@ -67,4 +73,10 @@ export function registerWorkflows(server: McpServer): void {
   registerSetFormServerValidation(server)
   registerCreateForm(server)
   registerDeleteForm(server)
+  registerCreateEmailTemplate(server)
+  registerCreateElementLookup(server)
+  registerListElementLookups(server)
+  registerCreateElementList(server)
+  registerListElementLists(server)
+  registerCreateFormWithResources(server)
 }

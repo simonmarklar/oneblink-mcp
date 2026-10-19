@@ -1,6 +1,6 @@
 # create_form
 
-Create a OneBlink form in one call, taking its elements EITHER as a human-authored CSV (elementsCsv) or a well-defined SDK FormElement[] (elements) - exactly one source. Reach for it when a spreadsheet author or a machine has a form definition and you want it created without hand-building the SDK payload: types are matched case-insensitively to the SDK type set, names derived from labels, options parsed from Label:value tokens separated by "|" (preferred) or ",", nesting from a parent column or nested elements. The whole input is validated fail-fast (human- and machine-readable errors) before any API call, organisationId is derived server-side from the credential, and the form is created via Forms.createForm.
+Create a OneBlink form in one call, taking its elements EITHER as a human-authored CSV (elementsCsv) or a well-defined SDK FormElement[] (elements) - exactly one source. Reach for it when a spreadsheet author or a machine has a form definition and you want it created without hand-building the SDK payload: types are matched case-insensitively to the SDK type set, names derived from labels, options parsed from Label:value tokens separated by "|" (preferred) or ",", nesting from a parent column or nested elements. The whole input is validated fail-fast (human- and machine-readable errors) before any API call; by default any supporting-resource ids the elements reference (dynamicOptionSetId, dataLookupId, elementLookupId) are checked to exist in the target environment first; organisationId is derived server-side from the credential, and the form is created via Forms.createForm.
 
 ## Parameters
 
@@ -10,6 +10,7 @@ Create a OneBlink form in one call, taking its elements EITHER as a human-author
 | `formsAppEnvironmentId` | `integer` | Required | Environment the form is created in; discover ids with list_forms_app_environments. |
 | `elementsCsv` | `string` | Optional | CSV of element rows (label,type,parent,required,options,prop:*). Supply this XOR elements - exactly one. |
 | `elements` | `object[]` | Optional | Well-defined SDK FormElement[]. Supply this XOR elementsCsv - exactly one. |
+| `validateResourceRefs` | `boolean` | Optional | Pre-flight check that referenced resource ids (dynamicOptionSetId/dataLookupId/elementLookupId) exist in the target environment; defaults to true, set false to skip. |
 | `description` | `string` | Optional | Form description; defaults to empty. |
 | `formsAppIds` | `integer[]` | Optional | Forms App ids this form belongs to; defaults to empty. |
 | `isAuthenticated` | `boolean` | Optional | Whether the form requires an authenticated user; defaults to false. |

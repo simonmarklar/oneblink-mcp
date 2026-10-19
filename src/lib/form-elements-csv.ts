@@ -125,7 +125,7 @@ function resolveType(input: string): GeneratedFormElementType | undefined {
 }
 
 /** Parse the options cell: `|`- or `,`-separated tokens, each `label:value` or bare `label`. */
-function parseOptions(cell: string): Array<{ label: string; value: string }> {
+export function parseOptions(cell: string): Array<{ label: string; value: string }> {
   return splitTopLevel(cell)
     .map((tok) => tok.trim())
     .filter((tok) => tok.length > 0)
@@ -146,7 +146,7 @@ function parseOptions(cell: string): Array<{ label: string; value: string }> {
  * (NSW:nsw|VIC:vic). When any `|` is present the cell is split on `|` only, so a
  * label/value may itself contain a comma; otherwise it falls back to `,`.
  */
-function splitTopLevel(s: string): string[] {
+export function splitTopLevel(s: string): string[] {
   return s.includes('|') ? s.split('|') : s.split(',')
 }
 

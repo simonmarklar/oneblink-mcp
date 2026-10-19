@@ -146,6 +146,26 @@ npx mcp-inspector --cli --transport http --server-url http://127.0.0.1:3000/mcp 
 
 Each tool call then runs with your key pair for that session.
 
+### Connecting a coding agent (Kiro, Claude, Codex, Cursor, ...)
+
+See **[docs/connect-agents.md](docs/connect-agents.md)** for per-agent config
+(native HTTP for Cursor/VS Code/Claude Code; a `mcp-remote` stdio bridge for
+Kiro/Claude Desktop/Codex/Windsurf/Gemini/Zed — this is an HTTP-only server, so
+stdio-only clients need the bridge).
+
+Automated setup writes the right config block for you:
+
+```bash
+npm run start:http               # server must be running (127.0.0.1:3000)
+npm run connect -- --agent kiro  # or cursor, claude-code, codex, vscode, ...
+npm run connect                  # interactive: pick from the list
+npm run connect -- --agent kiro --dry-run   # preview, change nothing
+```
+
+It merges an `oneblink` entry into the agent's existing config (never clobbers
+other servers), backs the file up to `<file>.bak`, and keeps keys in env refs.
+
+
 > Credentials ride **headers, never tool arguments** — so they never enter the
 > model's context, the transcript, or tool logs. The server never logs them and
 > never returns them. A hosted deployment MUST terminate TLS in front so the

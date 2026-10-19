@@ -27,7 +27,7 @@
  * reads it from that context. There is no server-held key and no env fallback.
  */
 import { loadTenant, type Config } from './config.js'
-import { Forms, FormsAppEnvironments, EmailTemplates } from '@oneblink/sdk'
+import { Forms, FormsAppEnvironments, EmailTemplates, FormElementLists, FormElementLookups } from '@oneblink/sdk'
 import { currentClient } from './request-context.js'
 
 /** Developer Key options object every SDK service constructor accepts. */
@@ -45,6 +45,10 @@ export interface OneBlinkClient {
   formsAppEnvironments(): FormsAppEnvironments
   /** EmailTemplates service, scoped to the resolved Developer Key. */
   emailTemplates(): EmailTemplates
+  /** FormElementLists service, scoped to the resolved Developer Key. */
+  formElementLists(): FormElementLists
+  /** FormElementLookups service, scoped to the resolved Developer Key. */
+  formElementLookups(): FormElementLookups
 }
 
 /** Build a client around an explicit set of SDK options (key already resolved). */
@@ -52,6 +56,8 @@ function buildClient(sdkOptions: SdkConstructorOptions, config: Config): OneBlin
   let formsService: Forms | undefined
   let envService: FormsAppEnvironments | undefined
   let emailTemplateService: EmailTemplates | undefined
+  let formElementListsService: FormElementLists | undefined
+  let formElementLookupsService: FormElementLookups | undefined
   return {
     config,
     sdkOptions,
@@ -68,6 +74,14 @@ function buildClient(sdkOptions: SdkConstructorOptions, config: Config): OneBlin
     emailTemplates() {
       emailTemplateService ??= new EmailTemplates(sdkOptions)
       return emailTemplateService
+    },
+    formElementLists() {
+      formElementListsService ??= new FormElementLists(sdkOptions)
+      return formElementListsService
+    },
+    formElementLookups() {
+      formElementLookupsService ??= new FormElementLookups(sdkOptions)
+      return formElementLookupsService
     },
   }
 }

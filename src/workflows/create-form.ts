@@ -17,7 +17,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getClient } from '../lib/oneblink-client.js'
 import { logger } from '../lib/logger.js'
 import { compileCsv } from '../lib/form-elements-csv.js'
+import { compileYaml } from '../lib/form-elements-yaml.js'
 import { normalizeElements, type FormValidationError, type MutableElement } from '../lib/form-normalize.js'
+import { collectResourceRefs, idsInEnvironment, validateResourceRefs } from '../lib/form-resource-refs.js'
 
 // A post-submission action is a small enum in the SDK; keep it permissive here
 // and let the SDK validate the exact union, defaulting to the common case.
@@ -39,8 +41,27 @@ const baseShape = {
   cancelAction: postActionSchema.default('FORMS_LIBRARY'),
   redirectUrl: z.string().url().optional().describe('Required when an action is URL.'),
   isMultiPage: z.boolean().optional().describe('Omit to infer from the elements (true iff root is pages). Validated either way.'),
-  elementsCsv: z.string().min(1).optional().describe('CSV of element rows (label,type,parent,required,options,prop:*). Mutually exclusive with elements.'),
-  elements: z.array(z.object({}).passthrough()).optional().describe('Well-defined SDK FormElement[]. Mutually exclusive with elementsCsv.'),
+  elementsCsv: z.string().min(1).optional().describe('CSV of element rows (label,type,parent,required,options,prop:*). Mutually exclusive with elementsYaml and elements.'),
+  elementsYaml: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'YAML form definition (hierarchical peer of elementsCsv): an "elements:" list ' +
+        '(or a bare top-level list) where each element has label/type, optional ' +
+        'required/options, a nested "children:" list for containers, and any other ' +
+        'key passed through as an SDK element prop. Mutually exclusive with elementsCsv and elements.',
+    ),
+  elements: z.array(z.object({}).passthrough()).optional().describe('Well-defined SDK FormElement[]. Mutually exclusive with elementsCsv and elementsYaml.'),
+  validateResourceRefs: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Pre-flight check that any supporting-resource ids referenced by elements ' +
+        '(dynamicOptionSetId, dataLookupId, elementLookupId) already exist in the ' +
+        'target environment, failing fast with a readable error before createForm. ' +
+        'Default true; set false to skip the extra lookups when ids are known good.',
+    ),
 } as const
 
 const inputSchema = z.object(baseShape)
@@ -55,12 +76,14 @@ function errorResult(text: string, errors?: FormValidationError[]) {
 export function registerCreateForm(server: McpServer): void {
   server.tool(
     'create_form',
-    'Create a OneBlink form from either a human-authored CSV of element rows ' +
-      '(elementsCsv) or a well-defined SDK FormElement[] (elements) — exactly one. ' +
+    'Create a OneBlink form from one of three element sources — a human-authored ' +
+      'CSV of element rows (elementsCsv), a hierarchical YAML definition ' +
+      '(elementsYaml), or a well-defined SDK FormElement[] (elements) — exactly one. ' +
       'Element types are matched case-insensitively to the SDK type set; names are ' +
       'derived from labels (snake_case); options are "Label:value" tokens ' +
-      'separated by "|" (preferred) or "," ; nesting ' +
-      'uses a parent column (CSV) or nested elements (definition). The whole input ' +
+      'separated by "|" (preferred) or "," (CSV) / a list of "Label:value" strings ' +
+      'or {label,value} maps (YAML); nesting ' +
+      'uses a parent column (CSV) or nested children/elements (YAML/definition). The whole input ' +
       'is validated fail-fast with human- and machine-readable errors before any ' +
       'API call.',
     baseShape,
@@ -73,23 +96,32 @@ export function registerCreateForm(server: McpServer): void {
 
       // Exactly one element source (spec: element_source).
       const hasCsv = typeof input.elementsCsv === 'string'
+      const hasYaml = typeof input.elementsYaml === 'string'
       const hasDef = Array.isArray(input.elements)
-      if (hasCsv === hasDef) {
+      const sourceCount = (hasCsv ? 1 : 0) + (hasYaml ? 1 : 0) + (hasDef ? 1 : 0)
+      if (sourceCount !== 1) {
         return errorResult(
-          hasCsv
-            ? 'Provide exactly one element source: both elementsCsv and elements were given.'
-            : 'Provide exactly one element source: pass either elementsCsv or elements.',
+          sourceCount === 0
+            ? 'Provide exactly one element source: pass elementsCsv, elementsYaml, or elements.'
+            : 'Provide exactly one element source: more than one of elementsCsv, elementsYaml, elements was given.',
         )
       }
 
       // 1) Produce an element array from the chosen source.
       let rawElements: MutableElement[]
-      let source: 'csv' | 'definition'
+      let source: 'csv' | 'yaml' | 'definition'
       if (hasCsv) {
         source = 'csv'
         const compiled = compileCsv(input.elementsCsv as string)
         if (compiled.errors.length > 0) {
           return errorResult(`CSV validation failed (${compiled.errors.length} error(s)); no form created.`, compiled.errors)
+        }
+        rawElements = compiled.elements
+      } else if (hasYaml) {
+        source = 'yaml'
+        const compiled = compileYaml(input.elementsYaml as string)
+        if (compiled.errors.length > 0) {
+          return errorResult(`YAML validation failed (${compiled.errors.length} error(s)); no form created.`, compiled.errors)
         }
         rawElements = compiled.elements
       } else {
@@ -124,6 +156,58 @@ export function registerCreateForm(server: McpServer): void {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'org derivation failed'
         return errorResult(`Could not resolve organisationId (no form created): ${message}`)
+      }
+
+      // 3.5) Pre-flight supporting-resource existence check (default on).
+      // Collect every dynamicOptionSetId / dataLookupId / elementLookupId the
+      // elements reference, batch-resolve each KIND once against the derived org
+      // + target environment, and fail fast (D7 shape) on any missing id before
+      // createForm. A09: log COUNTS only — never ids-as-content.
+      if (input.validateResourceRefs) {
+        const refs = collectResourceRefs(normalized.elements)
+        if (refs.length > 0) {
+          const needsLists = refs.some((r) => r.kind === 'list')
+          const needsLookups = refs.some((r) => r.kind === 'lookup')
+          try {
+            const client = getClient()
+            // Fetch each kind ONCE (no N+1 per element). Resources are
+            // environment-scoped, so filter org-wide rows to the target env.
+            let listIds = new Set<number>()
+            let lookupIds = new Set<number>()
+            if (needsLists) {
+              const res = (await (client.formElementLists() as unknown as {
+                searchFormElementLists(o: { organisationId: string; limit: number; offset: number }): Promise<{
+                  formElementLists?: Array<Record<string, unknown>>
+                }>
+              }).searchFormElementLists({ organisationId, limit: 200, offset: 0 }))
+              listIds = idsInEnvironment(res.formElementLists ?? [], input.formsAppEnvironmentId)
+            }
+            if (needsLookups) {
+              const res = (await (client.formElementLookups() as unknown as {
+                searchFormElementLookups(o: { organisationId: string; limit: number; offset: number }): Promise<{
+                  formElementLookups?: Array<Record<string, unknown>>
+                }>
+              }).searchFormElementLookups({ organisationId, limit: 200, offset: 0 }))
+              lookupIds = idsInEnvironment(res.formElementLookups ?? [], input.formsAppEnvironmentId)
+            }
+            const refErrors = validateResourceRefs(refs, { listIds, lookupIds }, input.formsAppEnvironmentId)
+            logger.info('create_form resource-ref check', {
+              source,
+              refsChecked: refs.length,
+              refsMissing: refErrors.length,
+            })
+            if (refErrors.length > 0) {
+              return errorResult(
+                `Resource-reference validation failed (${refErrors.length} error(s)); no form created.`,
+                refErrors,
+              )
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'resource-ref check failed'
+            logger.error('create_form resource-ref check failed', { source, message })
+            return errorResult(`Could not validate resource references (no form created): ${message}`)
+          }
+        }
       }
 
       // 4) Scaffold NewForm and create. organisationId is DERIVED (rule 1);
