@@ -1,16 +1,16 @@
 ---
-status: proposed
-last_verified: 2026-10-11
+status: accepted
+last_verified: 2026-10-20
 verified_against:
   - "@oneblink/sdk Forms.getForm(id, injectForms?)/updateForm(form, overrideLock?) - read 2026-10-11"
   - "@oneblink/types approvals.d.ts: FormApprovalFlowStep (STANDARD|CONCURRENT), FormApprovalFlowNodeBase {label,group,approvalFormId?,...}, FormApprovalCannedResponse - read 2026-10-11"
   - "@oneblink/types forms.d.ts L1774-1777: Form.approvalSteps?: FormApprovalFlowStep[]; Form.approvalConfiguration? - read 2026-10-11"
-  - "NO live probe yet - status proposed until a form with an approval flow is written end-to-end"
+  - "LIVE PROBE 2026-10-20 against OneBlink Console (@oneblink/sdk v13.2.5): production path buildApprovalSteps -> Forms.getForm -> set approvalSteps -> updateForm -> read-back -> restore, on form 6892. Write landed (1 STANDARD step), independent read-back confirmed it, form restored to original (0 steps). Backend NORMALISED the group value server-side (stored a resolved group id), confirming D4 (approvalFormId/group not client-validated - OneBlink validates on save)."
 ---
 
 # Requirements: `set_approval_flow`
 
-**Status:** Draft for review (proposed - not yet live-verified)
+**Status:** Accepted (live-verified 2026-10-20)
 **Feature:** Set (replace) the approval flow configuration on a form - the
 ordered `approvalSteps` and optional whole-flow `approvalConfiguration`.
 **Purpose:** Second class of form-definition write (after submission events).
